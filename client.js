@@ -588,6 +588,7 @@ window.__ModuleLoader__.load({
     }
 
     function PassageAnnotationsOverlay({ useSessions, insertIntoInput }) {
+      if (typeof useSessions !== "function") return null;
       const sessionId = useSessions((state) => {
         return Object.values(state.byId).find((session) => (session.retainedBy.mainView ?? 0) > 0)?.id;
       });
@@ -732,7 +733,10 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ["slots", "sessions", "inputTriggers", "remote", "remote.workspaceFiles"],
+      // Local hardening: `slots` is the only hard requirement. The other
+      // services are read through ctx.get/optional access below, so a build
+      // that lacks one of them can no longer keep the whole plugin pending.
+      inject: ["slots"],
       apply(ctx) {
         // Register a serializer for the custom chip source. Without a codec the
         // composer raises "no serializer for reference source" when it
@@ -765,8 +769,9 @@ window.__ModuleLoader__.load({
           } catch {
             return false;
           }
-          const binding = typeof ctx.sessions.binding === "function"
-            ? ctx.sessions.binding(sessionId)
+          const sessions = ctx.get("sessions");
+          const binding = typeof sessions?.binding === "function"
+            ? sessions.binding(sessionId)
             : undefined;
           const actx = binding?.ctx;
           if (actx !== undefined && typeof actx.emit === "function") {
@@ -799,8 +804,9 @@ window.__ModuleLoader__.load({
         }, PassageAnnotationsInputBridge));
         // Read the previewed file so a file note can carry its source line.
         const readFileText = async (sessionId, path) => {
-          if (ctx.remote === undefined || ctx.remote.workspaceFiles === undefined) return "";
-          const res = await ctx.remote.workspaceFiles.read(
+          const remote = ctx.get("remote");
+          if (remote === undefined || remote.workspaceFiles === undefined) return "";
+          const res = await remote.workspaceFiles.read(
             sessionId,
             path,
             { offset: 0, limit: 4000 },
