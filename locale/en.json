@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Passage Annotations",
+    "description": "Select a passage in the conversation and attach a note the agent reads before editing."
+  }
+}

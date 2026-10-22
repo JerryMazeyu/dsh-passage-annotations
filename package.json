@@ -1,0 +1,29 @@
+{
+  "name": "@local/dsh-passage-annotations",
+  "version": "1.0.0",
+  "description": "Passage annotations for the DeepSeek Harness Web UI: select text in chat or a file preview, attach a note, and the agent sees it with the file path and source line.",
+  "license": "MIT",
+  "author": "JerryMazeyu",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JerryMazeyu/dsh-passage-annotations.git"
+  },
+  "homepage": "https://github.com/JerryMazeyu/dsh-passage-annotations",
+  "keywords": ["deepseek-harness", "dsh", "dsh-plugin", "annotation", "note"],
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": ["index.js", "client.js", "cordis.patch.yml", "locale/*.json", "icon.svg"],
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": ["@deepseek-ai/dsh-client-ui-conversation"]
+    }
+  }
+}

@@ -1,0 +1,3 @@
+- insert:
+    - id: passage-annotations
+      name: '@local/dsh-passage-annotations'
