@@ -29,12 +29,13 @@ window.__ModuleLoader__.load({
         boxShadow: "0 4px 16px rgba(0,0,0,0.28)",
         whiteSpace: "nowrap",
       },
-      // Collapsed pin: a small bubble anchored beside the annotated passage.
+      // Collapsed pin: a small draggable bubble in a quiet corner.
       pin: {
         position: "fixed",
-        transform: "translateX(-50%)",
         zIndex: 10000,
         pointerEvents: "auto",
+        userSelect: "none",
+        touchAction: "none",
         display: "flex",
         alignItems: "center",
         gap: 6,
@@ -45,7 +46,7 @@ window.__ModuleLoader__.load({
         fontSize: "12px",
         fontWeight: 700,
         padding: "5px 11px",
-        cursor: "pointer",
+        cursor: "grab",
         boxShadow: "0 4px 14px rgba(0,0,0,0.28)",
         whiteSpace: "nowrap",
       },
@@ -289,6 +290,49 @@ window.__ModuleLoader__.load({
       return { left, top };
     }
 
+    // The collapsed note pill lives in a quiet corner instead of on top of the
+    // annotated passage, and the user can drag it anywhere (the point is
+    // remembered across sessions in this browser).
+    const PIN_STORAGE_KEY = "dsh.passage-annotations.pin";
+    const PIN_SIZE = { width: 92, height: 34 };
+    const PIN_EDGE = 24;
+
+    function defaultPinPoint() {
+      return {
+        left: Math.max(8, window.innerWidth - PIN_SIZE.width - PIN_EDGE),
+        top: Math.max(8, window.innerHeight - PIN_SIZE.height - PIN_EDGE),
+      };
+    }
+
+    function clampPinPoint(point) {
+      const pad = 8;
+      return {
+        left: Math.min(Math.max(pad, point.left), Math.max(pad, window.innerWidth - PIN_SIZE.width - pad)),
+        top: Math.min(Math.max(pad, point.top), Math.max(pad, window.innerHeight - PIN_SIZE.height - pad)),
+      };
+    }
+
+    function readPinPoint() {
+      try {
+        const raw = window.localStorage.getItem(PIN_STORAGE_KEY);
+        if (raw !== null) {
+          const parsed = JSON.parse(raw);
+          if (Number.isFinite(parsed?.left) && Number.isFinite(parsed?.top)) return clampPinPoint(parsed);
+        }
+      } catch {
+        /* storage may be unavailable; fall back to the corner */
+      }
+      return defaultPinPoint();
+    }
+
+    function writePinPoint(point) {
+      try {
+        window.localStorage.setItem(PIN_STORAGE_KEY, JSON.stringify(point));
+      } catch {
+        /* ignore */
+      }
+    }
+
     function PassageAnnotationsPanel({ sessionId, insertIntoInput }) {
       const [notes, setNotes] = useState([]);
       const [selection, setSelection] = useState(null); // { text, x, y }
@@ -304,6 +348,9 @@ window.__ModuleLoader__.load({
       const [previewLoading, setPreviewLoading] = useState(false);
       const textareaRef = useRef(null);
       const panelRef = useRef(null);
+      const [pinPoint, setPinPoint] = useState(() => readPinPoint());
+      const pinDrag = useRef(null);
+      const pinDragEndedAt = useRef(0);
 
       const load = useCallback(async () => {
         try {
@@ -404,6 +451,67 @@ window.__ModuleLoader__.load({
         setMode("open");
       }
 
+      // Keep the pill inside the viewport when the window shrinks.
+      useEffect(() => {
+        function onResize() {
+          setPinPoint((point) => clampPinPoint(point));
+        }
+        window.addEventListener("resize", onResize);
+        return () => window.removeEventListener("resize", onResize);
+      }, []);
+
+      function onPinPointerDown(event) {
+        if (event.pointerType === "mouse" && event.button !== 0) return;
+        const rect = event.currentTarget.getBoundingClientRect();
+        pinDrag.current = {
+          pointerId: event.pointerId,
+          offsetX: event.clientX - rect.left,
+          offsetY: event.clientY - rect.top,
+          startX: event.clientX,
+          startY: event.clientY,
+          moved: false,
+          last: null,
+        };
+        try {
+          event.currentTarget.setPointerCapture(event.pointerId);
+        } catch {
+          /* capture is an optimization only */
+        }
+      }
+
+      function onPinPointerMove(event) {
+        const drag = pinDrag.current;
+        if (drag === null || drag.pointerId !== event.pointerId) return;
+        if (!drag.moved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 3) return;
+        drag.moved = true;
+        drag.last = clampPinPoint({
+          left: event.clientX - drag.offsetX,
+          top: event.clientY - drag.offsetY,
+        });
+        setPinPoint(drag.last);
+      }
+
+      function openFromPin() {
+        setAnchor(clampPoint(pinPoint.left, pinPoint.top + 34));
+        setMode("open");
+      }
+
+      function onPinPointerEnd(event) {
+        const drag = pinDrag.current;
+        if (drag === null || drag.pointerId !== event.pointerId) return;
+        pinDrag.current = null;
+        try {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        } catch {
+          /* ignore */
+        }
+        if (!drag.moved) return;
+        // Remember where the user dropped it; the click that follows the drag
+        // must not also open the panel.
+        pinDragEndedAt.current = Date.now();
+        writePinPoint(drag.last ?? pinPoint);
+      }
+
       async function submit() {
         const quote = pendingQuote.trim();
         const note = draft.trim();
@@ -463,12 +571,21 @@ window.__ModuleLoader__.load({
           }, "＋ 备注")
         : null;
 
-      const collapsed = mode === "collapsed" && anchor
+      const collapsed = mode === "collapsed" && notes.length > 0
         ? h("button", {
             type: "button",
-            style: { ...style.pin, left: anchor.left, top: anchor.top },
+            title: "拖动可移动位置，点击展开备注",
+            style: { ...style.pin, left: pinPoint.left, top: pinPoint.top },
             onMouseDown: (e) => e.preventDefault(),
-            onClick: () => setMode("open"),
+            onPointerDown: onPinPointerDown,
+            onPointerMove: onPinPointerMove,
+            onPointerUp: onPinPointerEnd,
+            onPointerCancel: onPinPointerEnd,
+            onClick: () => {
+              // A drag ends with a click too; that one must not open the panel.
+              if (Date.now() - pinDragEndedAt.current < 300) return;
+              openFromPin();
+            },
           },
           "备注",
           h("span", { style: style.pinBadge }, notes.length))

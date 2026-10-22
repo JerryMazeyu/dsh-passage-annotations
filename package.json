@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-passage-annotations",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Passage annotations for the DeepSeek Harness Web UI: select text in chat or a file preview, attach a note, and the agent sees it with the file path and source line.",
   "license": "MIT",
   "author": "JerryMazeyu",
